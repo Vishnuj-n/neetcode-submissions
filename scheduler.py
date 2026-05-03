@@ -26,6 +26,69 @@ logger = logging.getLogger(__name__)
 class NeetCodeScheduler:
     def __init__(self):
         self.script_dir = Path(__file__).parent
+        self.repo_path = self.script_dir
+        
+    def fetch_from_github(self) -> bool:
+        """Fetch latest changes from GitHub repository using git pull."""
+        try:
+            logger.info("Fetching latest changes from GitHub...")
+            
+            # Check if we're in a git repository
+            result = subprocess.run(
+                ["git", "rev-parse", "--git-dir"],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode != 0:
+                logger.error("Not a git repository")
+                return False
+            
+            # Check if remote origin exists
+            result = subprocess.run(
+                ["git", "remote", "get-url", "origin"],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode != 0:
+                logger.error("No 'origin' remote found")
+                return False
+            
+            # Pull latest changes
+            result = subprocess.run(
+                ["git", "pull", "origin", "main"],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            if result.returncode == 0:
+                if "Already up to date" in result.stdout:
+                    logger.info("Repository is up to date")
+                else:
+                    logger.info("Successfully pulled latest changes")
+                    if result.stdout.strip():
+                        logger.info(f"Pull output: {result.stdout.strip()}")
+                return True
+            else:
+                logger.error(f"Git pull failed: {result.stderr.strip()}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            logger.error("Git pull timed out")
+            return False
+        except FileNotFoundError:
+            logger.error("Git command not found. Is git installed?")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to fetch from GitHub: {e}")
+            return False
         
     def run_script(self, script_name: str) -> bool:
         """Run a Python script and return success status."""
@@ -61,6 +124,10 @@ class NeetCodeScheduler:
     
     def generate_cards(self):
         """Generate Anki cards from solutions."""
+        # First fetch latest changes from GitHub
+        if not self.fetch_from_github():
+            logger.warning("Failed to fetch from GitHub, proceeding with local files")
+        
         success = self.run_script("generate.py")
         if success:
             logger.info("Cards generated successfully")
@@ -71,6 +138,10 @@ class NeetCodeScheduler:
     
     def validate_solutions(self):
         """Run solution validation."""
+        # Ensure we have latest changes before validation
+        if not self.fetch_from_github():
+            logger.warning("Failed to fetch from GitHub, proceeding with local files")
+            
         success = self.run_script("test_solutions.py")
         if success:
             logger.info("Solution validation passed")
@@ -98,6 +169,12 @@ class NeetCodeScheduler:
     def run_once(self):
         """Run all tasks once immediately."""
         logger.info("Running all tasks once")
+        # Fetch latest changes first
+        if self.fetch_from_github():
+            logger.info("Repository updated, proceeding with tasks")
+        else:
+            logger.warning("Failed to fetch from GitHub, proceeding with local files")
+        
         self.generate_cards()
         self.validate_solutions()
     
