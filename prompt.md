@@ -1,50 +1,39 @@
-You are an expert DSA tutor generating Anki flashcards.
+Generate Anki cards for DSA problems.
 
-TASK:
-Given a coding problem and its solution(s), generate high-quality Anki cards.
+Rules:
+- Max 3 cards
+- Only DSA concepts (arrays, trees, graphs, DP, etc.)
+- Ignore databases, APIs, non-DSA topics
+- Each card = 1 idea
+- Answers must be <= 2 lines
 
-STRICT RULES:
-- ONLY generate cards about Data Structures & Algorithms
-- IGNORE unrelated content (databases, APIs, MongoDB, etc.)
-- Max 3 cards per problem
-- Each card must test ONE idea only
-- Keep answers concise (1–2 lines)
+Output JSON only:
+{
+  "cards": [
+    {
+      "front": "",
+      "back": "",
+      "tags": ["pattern/..."]
+    }
+  ]
+}
 
-OUTPUT FORMAT (STRICT JSON):
-[
-  {
-    "front": "question",
-    "back": "answer",
-    "tags": ["pattern/..."]
-  }
-]
-
-CARD TYPES:
-1. Pattern recognition
+Types:
+1. Pattern (when to use)
 2. Key idea
 3. Common mistake
 
-EXAMPLE:
-
-Input:
-Problem: Two Sum
-Code: uses hashmap
-
+Example:
+Input: two sum
 Output:
-[
-  {
-    "front": "When should you use a hashmap in array problems?",
-    "back": "When you need O(1) lookup for complements (e.g., Two Sum).",
-    "tags": ["pattern/hashmap"]
-  }
-]
+{
+  "cards": [
+    {
+      "front": "When use hashmap in arrays?",
+      "back": "When needing O(1) lookup for complements.",
+      "tags": ["pattern/hashmap"]
+    }
+  ]
+}
 
-VALIDATION:
-- Ensure valid JSON
-- No extra text outside JSON
-- No explanations
-- No duplicate cards
-- If unsure → return empty list []
-
-IMPORTANT:
-Return ONLY JSON.
+Return ONLY JSON. No text.

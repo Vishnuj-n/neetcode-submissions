@@ -1,9 +1,9 @@
-import os, json, hashlib, sys
+import os, json, hashlib, sys, time
 from dotenv import load_dotenv
 import requests
 from pathlib import Path
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
 API_KEY = os.getenv("OPENAI_API_KEY")
 BASE_URL = os.getenv("OPENAI_BASE_URL")
@@ -11,15 +11,11 @@ MODEL = os.getenv("MODEL_NAME")
 
 ROOT = Path(os.getenv("DATA_ROOT", "./Data Structures & Algorithms"))
 
-MAX_CHARS = 4000
+MAX_CHARS = 3000
 MIN_LINES = 4
 
 def read_prompt():
-    prompt_file = Path("prompt.md")
-    if not prompt_file.exists():
-        raise FileNotFoundError(f"prompt.md not found in current directory: {Path.cwd()}")
-    with open(prompt_file, encoding="utf-8") as f:
-        return f.read()
+    return Path("prompt.md").read_text(encoding="utf-8")
 
 def get_problem_folders(root):
     for dirpath, _, filenames in os.walk(root):
@@ -33,15 +29,9 @@ def read_and_dedupe(folder, files):
 
     for f in files:
         path = os.path.join(folder, f)
-
         try:
-            with open(path, encoding="utf-8") as file:
-                code = file.read().strip()
-        except UnicodeDecodeError as e:
-            print(f"Warning: Skipping {f} due to encoding error: {e}", file=sys.stderr)
-            continue
-        except IOError as e:
-            print(f"Warning: Skipping {f} due to IO error: {e}", file=sys.stderr)
+            code = Path(path).read_text(encoding="utf-8").strip()
+        except:
             continue
 
         if len(code.splitlines()) < MIN_LINES:
@@ -52,51 +42,51 @@ def read_and_dedupe(folder, files):
             continue
         seen.add(h)
 
-        content.append(f"# {f}\n{code}")
+        content.append(code[:1200])  # smaller per-file limit
 
     return "\n\n".join(content)
 
-def truncate(text):
-    return text[:MAX_CHARS] if len(text) > MAX_CHARS else text
+def call_groq(system_prompt, user_input, retries=3):
+    for i in range(retries):
+        try:
+            res = requests.post(
+                f"{BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": MODEL,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_input}
+                    ],
+                    "temperature": 0.1,
+                    "max_completion_tokens": 300,
+                    "top_p": 1,
+                    "response_format": {"type": "json_object"}
+                },
+                timeout=30
+            )
 
-def call_openai(system_prompt, user_input):
-    if not API_KEY:
-        raise ValueError("OPENAI_API_KEY not found in environment variables")
-    if not BASE_URL:
-        raise ValueError("OPENAI_BASE_URL not found in environment variables")
-    if not MODEL:
-        raise ValueError("MODEL_NAME not found in environment variables")
-    
-    try:
-        res = requests.post(
-            f"{BASE_URL}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": MODEL,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_input}
-                ],
-                "temperature": 0.3
-            },
-            timeout=30
-        )
-        res.raise_for_status()
-        data = res.json()
+            data = res.json()
 
-        if "choices" not in data:
-            raise ValueError(f"Unexpected API response format: {data}")
+            if "choices" in data:
+                return data["choices"][0]["message"]["content"]
 
-        return data["choices"][0]["message"]["content"]
-    except requests.exceptions.RequestException as e:
-        raise RuntimeError(f"API request failed: {e}")
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"Failed to parse API response: {e}")
+            print("Retry:", data, file=sys.stderr)
+
+        except Exception as e:
+            print(f"Retry error: {e}", file=sys.stderr)
+
+        time.sleep(2 * (i + 1))
+
+    raise RuntimeError("API failed after retries")
 
 def main():
+    if not API_KEY:
+        raise ValueError("API KEY missing")
+
     prompt = read_prompt()
     all_cards = []
 
@@ -107,15 +97,16 @@ def main():
         if not code.strip():
             continue
 
-        code = truncate(code)
+        code = code[:MAX_CHARS]
 
-        user_input = f"Problem: {problem}\n\nCode:\n{code}"
+        user_input = f"{problem}\n{code}"
 
         print("Processing:", problem)
 
         try:
-            output = call_openai(prompt, user_input)
-            cards = json.loads(output)
+            output = call_groq(prompt, user_input)
+            result = json.loads(output)
+            cards = result.get("cards", [])
 
             for c in cards:
                 c.setdefault("tags", [])
@@ -124,16 +115,16 @@ def main():
             all_cards.extend(cards)
 
         except Exception as e:
-            print(f"Error processing {problem}: {e}", file=sys.stderr)
-            continue
+            print(f"Error: {problem} -> {e}", file=sys.stderr)
 
-    try:
-        with open("cards.json", "w", encoding="utf-8") as f:
-            json.dump(all_cards, f, indent=2, ensure_ascii=False)
-        print(f"\nDone. Total cards: {len(all_cards)}")
-    except IOError as e:
-        print(f"Error saving cards.json: {e}", file=sys.stderr)
-        sys.exit(1)
+        time.sleep(1.5)
+
+    Path("cards.json").write_text(
+        json.dumps(all_cards, indent=2, ensure_ascii=False),
+        encoding="utf-8"
+    )
+
+    print(f"\nDone. Total cards: {len(all_cards)}")
 
 if __name__ == "__main__":
     main()
